@@ -1,0 +1,51 @@
+name: Issue Created
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  process_issue:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+
+      - name: Send to AI Service
+        id: ai_response
+        run: |
+          RESPONSE=$(curl -s -X POST "https://models.inference.ai.azure.com/chat/completions" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.GH_TOKEN }}" \
+            -d '{
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "Você é um Bot que baseado na issue informada pelo usuário, irá gerar uma resposta com uma saudação amigavel, e uma sugestão para resolver essa issue. Responda em markdow"
+                },
+                {
+                  "role": "user",
+                  "content": "Essa é a descrição da Issue: ${{ github.event.issue.body }}"
+                }
+              ],
+              "model": "Meta-Llama-3.1-8B-Instruct",
+              "temperature": 0.8,
+              "max_tokens": 4096,
+              "top_p": 0.1
+            }')
+          RESPONSE_CONTENT=$(echo $RESPONSE | jq -r '.choices[0].message.content')
+          echo "$RESPONSE_CONTENT" > response_content.txt
+
+
+      - name: Add AI Response as Comment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat response_content.txt
+          AI_CONTENT=$(cat response_content.txt)
+          COMMENT_BODY="${AI_CONTENT}"
+          ISSUE_NUMBER=${{ github.event.issue.number }}
+          curl -s -X POST "https://api.github.com/repos/${{ github.repository }}/issues/$ISSUE_NUMBER/comments" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')"
